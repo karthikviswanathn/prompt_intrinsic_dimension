@@ -18,9 +18,20 @@ On this point cloud, we calculate the intrinsic dimension (ID).
 Specifically, we use the
 [Generalized Ratio Intrinsic Dimension Estimator (GRIDE)](https://www.nature.com/articles/s41598-022-20991-1)
 to estimate the intrinsic dimension implemented using the
-[DADApy library](https://github.com/sissa-data-science/DADApy).
+[DADApy library](https://github.com/sissa-data-science/DADApy). This is done by running the following example script
+```
+      python src/extract_id.py --input_dir results --model_name meta-llama/Meta-Llama-3-8B  --method structured
+```
+The above script generates the intrinsic dimension curve for `2244` (unshuffled) prompts for `Llama-3-8B` model. 
+The ID curves are then stored in `results/Pile-Structured/meta-llama/Meta-Llama-3-8B/gride.npy`.
+To run the code for the shuffled experiment, set `method` to `shuffled`. 
 
-2. Find the entropy of the latent predictions obtained using [Tuned Lens](https://huggingface.co/spaces/AlignmentResearch/tuned-lens/tree/main/lens). 
+2. Find the entropy of the latent predictions obtained using [Tuned Lens](https://huggingface.co/spaces/AlignmentResearch/tuned-lens/tree/main/lens). This is done by running the following example script
+```
+      python src/get_entropy.py --input_dir results --model_name meta-llama/Meta-Llama-3-8B
+```
+The above script generates the entropy of the latent predictions for `2244` prompts for `Llama-3-8B` model. 
+The latent entropies curves are then stored in `results/Pile-Structured/meta-llama/Meta-Llama-3-8B/entropy.npy`.
 
 ## Dataset
 Currently we use the prompts from [Pile-10K](https://huggingface.co/datasets/NeelNanda/pile-10k).
@@ -29,8 +40,9 @@ of all the above models. This results in `2244` prompts after filtering.
 The indices of the filtered prompts is stored in `filtered_indices.npy`. We choose 50 random prompts
 for the shuffle experiment in Figure 1 and their indices are stored in `subset_indices.npy`
 
-## Results
-The Jupyter notebook to reproduce the plots in the paper is given in [plots_for_paper.ipynb](results/plots_for_paper.ipynb).
+## Reproducibility
+The notebook to reproduce the plots in the paper is given in [plots_for_paper.ipynb](results/plots_for_paper.ipynb).
+All experiments were run on an NVIDIA A100 GPU with 120 GB memory. 
 
 ## References
 
