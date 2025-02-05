@@ -2,7 +2,6 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
-from huggingface_hub import login
 from tqdm import tqdm
 import os
 from tuned_lens.nn.lenses import TunedLens
@@ -13,7 +12,6 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_dir", type=str, default=None)
     parser.add_argument("--model_name", type=str, default=None)
-    parser.add_argument("--login_token", type=str, default=None)
     args = parser.parse_args()
     print("input args:\n", json.dumps(vars(args), indent=4, separators=(",", ":")))
     return args
@@ -51,31 +49,36 @@ def save_outputs(tuned_stats, output_folder):
     np.save(f"{output_folder}/free_energy.npy", np.array([item["free_energy"] for item in tuned_stats]))
     np.save(f"{output_folder}/energy.npy", np.array([item["energy"] for item in tuned_stats]))
 
+def load_model(model_name, device):
+    try:
+        # Attempt to load the model and tokenizer
+        model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        print(f"Model '{model_name}' is available on Hugging Face.")
+        return model, tokenizer
+    except Exception as e:
+        raise ValueError(f"Model '{model_name}' not found on Hugging Face. Error: {str(e)}")
+
 if __name__ == "__main__":
     args = parse_arguments()
-    login(token=args.login_token)
+    model_name = args.model_name
+# =============================================================================
+#     model_list = [
+#         "meta-llama/Meta-Llama-3-8B",
+#         "EleutherAI/pythia-6.9b-deduped",
+#         "EleutherAI/pythia-160m-deduped",
+#         "EleutherAI/pythia-410m-deduped",
+#         "EleutherAI/pythia-1.4b-deduped",
+#         "EleutherAI/pythia-2.8b-deduped",
+#         "facebook/opt-6.7b",
+#         "gpt2",
+#         "gpt2-large",
+#         "gpt2-xl"
+#         ]
+# =============================================================================
     
-    path_dict = {
-        "Llama-3-8B": "meta-llama/Meta-Llama-3-8B",
-        "Mistral-7B": "mistralai/Mistral-7B-v0.1",
-        "Pythia-160M-Deduped": "EleutherAI/pythia-160m-deduped",
-        "Pythia-410M-Deduped": "EleutherAI/pythia-410m-deduped",
-        "Pythia-1.4B-Deduped": "EleutherAI/pythia-1.4b-deduped",
-        "Pythia-2.8B-Deduped": "EleutherAI/pythia-2.8b-deduped",
-        "Pythia-6.9B-Deduped": "EleutherAI/pythia-6.9b-deduped",
-        "Pythia-6.9B": "EleutherAI/pythia-6.9b",
-        "Opt-6.7B": "facebook/opt-6.7b",
-        "Gpt2": "gpt2",
-        "Gpt2-large": "gpt2-large",
-        "Gpt2-xl": "gpt2-xl"
-    }
-    
-    if args.model_name not in path_dict:
-        raise ValueError(f"{args.model_name} not supported. Supported models: {path_dict.keys()}")
-    
-    tokenizer = AutoTokenizer.from_pretrained(path_dict[args.model_name])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = AutoModelForCausalLM.from_pretrained(path_dict[args.model_name]).to(device)
+    model, tokenizer = load_model(model_name, device = device)
     tuned_lens = TunedLens.from_model_and_pretrained(model).to(device)
     ds = load_dataset("NeelNanda/pile-10k")['train']
     sequences = ds['text']

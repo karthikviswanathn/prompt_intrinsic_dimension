@@ -9,7 +9,8 @@ this is done in roughly two steps -
 
 1. Extract the internal representations of the tokens -  We use the
 [hidden states](https://huggingface.co/docs/transformers/v4.45.2/en/internal/generation_utils#generate-outputs)
-variable from the [Transformers](https://huggingface.co/docs/transformers/index) library on Hugging Face.
+variable from the [Transformers](https://huggingface.co/docs/transformers/index) library on Hugging Face. 
+Make sure you are logged into HuggingFace Hub and have access to the models.
 
 2. Calculating the intrinsic dimension - For each hidden layer, we consider the point cloud formed
 by the token representation at that layer. On this point cloud, we calculate
@@ -18,12 +19,6 @@ Specifically, we use the
 [Generalized Ratio Intrinsic Dimension Estimator (GRIDE)](https://www.nature.com/articles/s41598-022-20991-1)
 to estimate the intrinsic dimension implemented using the
 [DADApy library](https://github.com/sissa-data-science/DADApy).
-
-## Models
-The list of models currently supported -
-1. [Llama-3-8B](https://huggingface.co/meta-llama/Meta-Llama-3-8B)
-2. [Mistral-7B-v0.1](https://huggingface.co/mistralai/Mistral-7B-v0.1)
-3. [Pythia-6.9B](https://huggingface.co/EleutherAI/pythia-6.9b)
 
 
 ## Dataset

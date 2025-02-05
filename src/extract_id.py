@@ -3,7 +3,6 @@ import numpy as np
 import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
-from huggingface_hub import login
 from tqdm import tqdm
 from joblib import Parallel, delayed
 from dadapy import data
@@ -13,20 +12,17 @@ import json
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+
 def shuffle_tokens(ids):
-    N = ids.shape[-1]
-    permutation = np.random.permutation(N)
-    new_ids = ids.reshape((1, N))
-    new_ids = new_ids[0, permutation]
-    return new_ids
+    assert ids.shape[0] == 1 and len(ids.shape) == 2, f"Expected shape (1, N), but got {ids.shape}"
+    permutation = np.random.permutation(ids.shape[1])
+    return ids[:, permutation]
 
 def parse_arguments():
     parser = argparse.ArgumentParser()   
     parser.add_argument("--input_dir", type=str, default=None)
     parser.add_argument("--model_name", type=str, default=None)
     parser.add_argument("--method", type=str, default=None)
-    parser.add_argument("--login_token", type=str, default=None)
-    parser.add_argument("--find_nn_sim", type=str, default="False")
     args = parser.parse_args()
     print("input args:\n", json.dumps(vars(args), indent=4, separators=(",", ":")))
     return args
@@ -43,10 +39,12 @@ def extract_hidden_states(sequence, model, tokenizer, max_length):
       outputs = model(**inputs, labels = inputs['input_ids'].clone(), \
                       output_hidden_states=True)
       hidden_states, loss = outputs.hidden_states, outputs.loss
-  return {
-          "hidden_distances" : convert_to_distances(hidden_states).cpu().detach().numpy(),\
-          "loss": loss.to(torch.float32).cpu().detach().numpy()
-              }
+      ans = {
+              "hidden_distances" : convert_to_distances(hidden_states).cpu().detach().numpy(),\
+              "loss": loss.to(torch.float32).cpu().detach().numpy(), \
+              "logit_distances": torch.cdist(outputs.logits, outputs.logits).cpu().detach().numpy().squeeze()
+             }         
+      return ans
 
 
 def compute_ids(full_reps):
@@ -54,54 +52,53 @@ def compute_ids(full_reps):
     for full_rep in full_reps:
         _, indices = np.unique(full_rep, axis=0, return_index=True)
         rep = full_rep[indices, :][:, indices]
-        _data = data.Data(distances=rep, maxk=300)
-        ids.append(_data.return_id_scaling_gride(range_max=256))
+        _data = data.Data(distances=rep, maxk=100)
+        ids.append(_data.return_id_scaling_gride(range_max=64))
     return np.array(ids)
 
-if __name__ == "__main__":
-    args = parse_arguments()
-    login(token=args.login_token)
+def load_model(model_name, device):
+    try:
+        # Attempt to load the model and tokenizer
+        model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        print(f"Model '{model_name}' is available on Hugging Face.")
+        return model, tokenizer
+    except Exception as e:
+        raise ValueError(f"Model '{model_name}' not found on Hugging Face. Error: {str(e)}")
 
-    path_dict = {
-        "Llama-3-8B": "meta-llama/Meta-Llama-3-8B",
-        "Mistral-7B": "mistralai/Mistral-7B-v0.1",
-        "Pythia-6.9B": "EleutherAI/pythia-6.9b",
-        "Pythia-6.9B-Deduped": "EleutherAI/pythia-6.9b-deduped",
-        "Pythia-160M-Deduped": "EleutherAI/pythia-160m-deduped",
-        "Pythia-410M-Deduped": "EleutherAI/pythia-410m-deduped",
-        "Pythia-1.4B-Deduped": "EleutherAI/pythia-1.4b-deduped",
-        "Pythia-2.8B-Deduped": "EleutherAI/pythia-2.8b-deduped",
-        "Opt-6.7B": "facebook/opt-6.7b",
-        "Gpt2": "gpt2",
-        "Gpt2-large": "gpt2-large",
-        "Gpt2-xl": "gpt2-xl"
-    }
+if __name__ == "__main__":
+    # =============================================================================
+    #     model_list = [
+    #         "meta-llama/Meta-Llama-3-8B",
+    #         "mistralai/Mistral-7B-v0.1",
+    #         "EleutherAI/pythia-6.9b-deduped",
+    #         "EleutherAI/pythia-160m-deduped",
+    #         "EleutherAI/pythia-410m-deduped",
+    #         "EleutherAI/pythia-1.4b-deduped",
+    #         "EleutherAI/pythia-2.8b-deduped",
+    #         "facebook/opt-6.7b",
+    #         "gpt2",
+    #         "gpt2-large",
+    #         "gpt2-xl"
+    #         ]
+    # =============================================================================
+    args = parse_arguments()
+    model_name = args.model_name
     
-    if args.model_name not in path_dict:
-        raise ValueError(f"{args.model_name} is not supported. Supported models: {list(path_dict.keys())}")
-    
-    model_path = path_dict[args.model_name]
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_path, cache_dir=f"/projects/0/gusr0688/llama-stuff/models/{args.model_name}"
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path, device_map="auto",
-        cache_dir=f"/projects/0/gusr0688/llama-stuff/models/{args.model_name}"
-    )
+    device = torch.device('cuda')
+    model, tokenizer = load_model(model_name, device = device)
     
     ds = load_dataset("NeelNanda/pile-10k")['train']
     sequences = ds['text']
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     max_length = 1024
     
     output_folder = f"{args.input_dir}/Pile-{args.method.capitalize()}/{args.model_name}"
-    os.makedirs(f"{output_folder}/summaries", exist_ok=True)
-    
+    os.makedirs(output_folder, exist_ok=True)
     if args.method == "structured":
         batch_sz = 32
         filtered_indices = np.load('filtered_indices.npy')
         filtered_sequences = [sequences[idx] for idx in filtered_indices]
-        ids_output, losses = [], []
+        ids_output, logits_ids_output, losses = [], [], []
         
         for batch_start in tqdm(range(0, len(filtered_indices), batch_sz)):
             batch_sequences = filtered_sequences[batch_start: batch_start + batch_sz]
@@ -113,9 +110,13 @@ if __name__ == "__main__":
             hidden_ids = np.array(Parallel(n_jobs=-1)(delayed(compute_ids)(hs) for hs in hidden_distances))
             ids_output.extend(hidden_ids)
             losses.extend([item["loss"] for item in intermediate_reps])
+            logit_distances = np.array([item["logit_distances"] for item in intermediate_reps])
+            logit_ids = np.array(Parallel(n_jobs=-1)(delayed(compute_ids)([ld]) for ld in logit_distances))
+            logits_ids_output.extend(logit_ids)
         
-        np.save(f'{output_folder}/summaries/losses.npy', losses)
-        np.save(f'{output_folder}/summaries/gride.npy', np.array(ids_output))
+        np.save(f'{output_folder}/losses.npy', losses)
+        np.save(f'{output_folder}/gride.npy', np.array(ids_output))
+        np.save(f'{output_folder}/logits_id.npy', np.array(logits_ids_output).squeeze())        
     
     elif args.method == "shuffled":
         new_filtered_indices = np.load('subset_indices.npy')
@@ -125,17 +126,21 @@ if __name__ == "__main__":
         for test_seq in tqdm(filtered_sequences):
             intermediate_reps, losses = [], []
             for _ in range(20):
-                inputs = tokenizer(test_seq.strip(), add_special_tokens=False, return_tensors="pt",
-                                   max_length=max_length, truncation=True).to(device)
-                new_ids = shuffle_tokens(inputs['input_ids'].squeeze()).to(device)
-                outputs = model(input_ids=new_ids, labels=new_ids.clone(), output_hidden_states=True)
-                intermediate_reps.append(convert_to_distances(outputs.hidden_states).cpu().numpy())
-                losses.append(outputs.loss.to(torch.float32).cpu().numpy())
+                with torch.no_grad():
+                    inputs = tokenizer(test_seq.strip(), add_special_tokens=False, return_tensors="pt",
+                                       max_length=max_length, truncation=True).to(device)
+                    ids = inputs['input_ids']
+                    new_ids = shuffle_tokens(ids).to(device)
+                    inputs = {'input_ids':new_ids}
+                    outputs = model(**inputs, labels = inputs['input_ids'].clone(), output_hidden_states=True)
+                    hidden_states, loss = outputs.hidden_states, outputs.loss
+                    intermediate_reps.append(convert_to_distances(outputs.hidden_states).cpu().detach().numpy())
+                    losses.append(outputs.loss.to(torch.float32).cpu().detach().numpy())
             
             hidden_distances = np.array([item[1:] for item in intermediate_reps])
             hidden_ids = np.array(Parallel(n_jobs=-1)(delayed(compute_ids)(hs) for hs in hidden_distances))
             all_ids.extend(hidden_ids)
             all_losses.extend(losses)
         
-        np.save(f"{output_folder}/summaries/losses_20.npy", all_losses)
-        np.save(f"{output_folder}/summaries/gride_20.npy", all_ids)
+        np.save(f"{output_folder}/losses.npy", all_losses)
+        np.save(f"{output_folder}/gride.npy", all_ids)
