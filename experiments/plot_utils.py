@@ -1,5 +1,6 @@
 import plotly.express as px
 import transformer_lens.utils as utils
+import pandas as pd
 
 def imshow(tensor, **kwargs):
     px.imshow(
@@ -72,5 +73,5 @@ def lines(tensors, names=None, x=None, **kwargs):
     df_long = df.melt(id_vars=['Layer', 'hover_name'], var_name='Model', value_name='Intrinsic Dimension')
 
     # Plot the lines with the hover labels coming from 'hover_name'.
-    fig = px.line(df_long, x='Layer', y='Intrinsc Dimension', color='Model', hover_name='hover_name', **kwargs)
+    fig = px.line(df_long, x='Layer', y='Intrinsic Dimension', color='Model', hover_name='hover_name', **kwargs)
     fig.show()
